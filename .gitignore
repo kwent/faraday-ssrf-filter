@@ -1,0 +1,7 @@
+*.gem
+Gemfile.lock
+gemfiles/*.lock
+tmp/
+log/
+vendor/
+.context/

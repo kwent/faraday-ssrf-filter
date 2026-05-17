@@ -1,0 +1,34 @@
+inherit_from:
+  - .rubocop/rspec.yml
+
+plugins:
+  - rubocop-rspec
+
+inherit_mode:
+  merge:
+    - Include
+    - Exclude
+
+AllCops:
+  NewCops: enable
+  SuggestExtensions: false
+  TargetRubyVersion: 3.0
+  Include:
+    - "lib/**/*.rb"
+    - "spec/**/*.rb"
+  Exclude:
+    - "vendor/**/*"
+    - "gemfiles/**/*"
+
+Style/Documentation:
+  Enabled: false
+
+Metrics/AbcSize:
+  Max: 25
+
+Metrics/MethodLength:
+  Max: 20
+
+Metrics/ClassLength:
+  Exclude:
+    - "lib/faraday/ssrf_filter/middleware.rb"

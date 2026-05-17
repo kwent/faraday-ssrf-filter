@@ -1,0 +1,33 @@
+RSpec:
+  Enabled: false
+
+RSpec/DescribeSymbol:
+  Enabled: true
+
+RSpec/Focus:
+  Enabled: true
+
+RSpec/ExampleWithoutDescription:
+  Enabled: true
+
+RSpec/MissingExampleGroupArgument:
+  Enabled: true
+
+RSpec/MultipleSubjects:
+  Enabled: true
+
+RSpec/NestedGroups:
+  Enabled: true
+  Max: 4
+
+RSpec/RemoveConst:
+  Enabled: true
+
+RSpec/SharedContext:
+  Enabled: true
+
+RSpec/SharedExamples:
+  Enabled: true
+
+RSpec/UnspecifiedException:
+  Enabled: true
