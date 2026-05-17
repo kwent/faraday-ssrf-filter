@@ -5,3 +5,8 @@ source 'https://rubygems.org'
 gemspec path: '..'
 
 gem 'faraday', '~> 2.0'
+
+group :test do
+  gem 'rspec', '~> 3.0'
+  gem 'webmock', '~> 3.0'
+end

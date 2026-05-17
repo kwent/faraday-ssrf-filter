@@ -2,6 +2,7 @@
 
 require 'ipaddr'
 require 'resolv'
+require 'uri'
 
 module Faraday
   module SsrfFilter
@@ -10,9 +11,11 @@ module Faraday
     class DirectIPError < SSRFError; end
     class InvalidSchemeError < SSRFError; end
     class DNSResolutionError < SSRFError; end
+    class UnsafeRedirectError < SSRFError; end
 
     class Middleware < Faraday::Middleware
       DEFAULT_SCHEMES = %w[http https].freeze
+      REDIRECT_STATUSES = (300..399)
 
       IPV4_DENYLIST = [
         IPAddr.new('0.0.0.0/8'),
@@ -71,7 +74,7 @@ module Faraday
 
       def call(env)
         validate_and_pin!(env)
-        @app.call(env)
+        @app.call(env).on_complete { |response_env| validate_redirect!(response_env) }
       end
 
       private
@@ -118,9 +121,57 @@ module Faraday
       def pin_ip!(env, ip, original_hostname)
         uri = env[:url]
         env[:request_headers] ||= {}
-        env[:request_headers]['Host'] = normalized_host(uri)
         env[:request_headers]['X-Faraday-SSRF-Original-Host'] = original_hostname
+        env[:request_headers]['X-Faraday-SSRF-Resolved-IP'] = ip
+
+        # Only rewrite hostname for HTTP. For HTTPS, rewriting breaks TLS SNI
+        # and certificate verification since the adapter would negotiate TLS
+        # with the IP address instead of the original hostname.
+        return unless uri.scheme == 'http'
+
+        env[:request_headers]['Host'] = normalized_host(uri)
         env[:url] = uri.dup.tap { |u| u.hostname = ip }
+      end
+
+      def validate_redirect!(env)
+        return unless REDIRECT_STATUSES.cover?(env[:status])
+
+        location = env[:response_headers]&.[]('location')
+        return if location.nil? || location.empty?
+
+        uri = resolve_redirect_uri(location, env[:url])
+        validate_redirect_target!(uri)
+      end
+
+      def resolve_redirect_uri(location, original_uri)
+        uri = URI.parse(location)
+        return uri if uri.host
+
+        URI.join("#{original_uri.scheme}://#{original_uri.host}:#{original_uri.port}", location)
+      rescue URI::InvalidURIError
+        raise UnsafeRedirectError, "Invalid redirect location: #{location}"
+      end
+
+      def validate_redirect_target!(uri)
+        raise UnsafeRedirectError, "Redirect to disallowed scheme: #{uri.scheme}" unless @schemes.include?(uri.scheme)
+
+        hostname = uri.hostname || uri.host
+        return unless hostname
+
+        addr = parse_ip(hostname)
+        if addr
+          raise UnsafeRedirectError, "Redirect to private IP: #{hostname}" unless safe_addr?(addr)
+        else
+          validate_redirect_hostname!(hostname)
+        end
+      end
+
+      def validate_redirect_hostname!(hostname)
+        addresses = Array(@resolver.call(hostname))
+        raise UnsafeRedirectError, "Cannot resolve redirect hostname: #{hostname}" if addresses.empty?
+
+        safe = addresses.any? { |a| safe_ip?(a.to_s) }
+        raise UnsafeRedirectError, "Redirect to '#{hostname}' resolves to a private IP" unless safe
       end
 
       def normalized_host(uri)

@@ -91,6 +91,8 @@ rescue Faraday::SsrfFilter::InvalidSchemeError => e
   # URI scheme not in allowed list
 rescue Faraday::SsrfFilter::DNSResolutionError => e
   # Could not resolve hostname
+rescue Faraday::SsrfFilter::UnsafeRedirectError => e
+  # Response redirects to a private/reserved IP or disallowed scheme
 rescue Faraday::SsrfFilter::SSRFError => e
   # Catch-all for any SSRF error
 end
@@ -145,8 +147,24 @@ Additionally, all IPv4 blacklisted ranges are also blocked in their IPv4-compati
 1. **Scheme validation** — Only `http` and `https` are allowed by default
 2. **Direct IP blocking** — URLs with IP addresses instead of hostnames are blocked by default
 3. **DNS resolution** — The hostname is resolved to IP addresses using `Resolv.getaddresses`
-4. **IP validation** — Each resolved IP is checked against the comprehensive blacklist
-5. **Hostname replacement** — The URL hostname is replaced with the validated IP and the `Host` header is set to the original hostname, preventing DNS rebinding (the adapter connects to the validated IP, not a re-resolved address)
+4. **IP validation** — Each resolved IP is checked against the comprehensive denylist
+5. **Hostname replacement (HTTP)** — For HTTP requests, the URL hostname is replaced with the validated IP and the `Host` header is set to the original hostname, preventing DNS rebinding
+6. **TLS preservation (HTTPS)** — For HTTPS requests, the hostname is preserved in the URL to maintain correct TLS SNI and certificate verification. The resolved IP is stored in the `X-Faraday-SSRF-Resolved-IP` header
+7. **Redirect validation** — Redirect responses (3xx with `Location` header) are inspected. The redirect target is resolved and validated against the same denylist, raising `UnsafeRedirectError` if it points to a private/reserved IP
+
+## Middleware Ordering
+
+When using a redirect-following middleware (e.g., `faraday-follow_redirects`), place it **before** the SSRF filter so each redirect is validated:
+
+```ruby
+conn = Faraday.new(url: 'https://api.example.com') do |f|
+  f.response :follow_redirects  # outer — follows redirects
+  f.request :ssrf_filter         # inner — validates each request including redirects
+  f.adapter Faraday.default_adapter
+end
+```
+
+The SSRF filter also validates redirect `Location` headers in responses as defense-in-depth, regardless of middleware ordering.
 
 ## Acknowledgments
 

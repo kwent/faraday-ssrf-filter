@@ -24,7 +24,7 @@ RSpec.describe Faraday::SsrfFilter::Middleware do
       expect(response.body).to eq('ok')
     end
 
-    it 'replaces hostname with resolved IP in URL' do
+    it 'replaces hostname with resolved IP in URL for HTTP' do
       stubs.get('/') do |env|
         expect(env.url.hostname).to eq('93.184.216.34')
         [200, {}, 'ok']
@@ -32,7 +32,7 @@ RSpec.describe Faraday::SsrfFilter::Middleware do
       conn.get('/')
     end
 
-    it 'sets Host header to original hostname' do
+    it 'sets Host header to original hostname for HTTP' do
       stubs.get('/') do |env|
         expect(env.request_headers['Host']).to eq('example.com')
         [200, {}, 'ok']
@@ -43,6 +43,14 @@ RSpec.describe Faraday::SsrfFilter::Middleware do
     it 'preserves original hostname in X-Faraday-SSRF-Original-Host header' do
       stubs.get('/') do |env|
         expect(env.request_headers['X-Faraday-SSRF-Original-Host']).to eq('example.com')
+        [200, {}, 'ok']
+      end
+      conn.get('/')
+    end
+
+    it 'stores resolved IP in X-Faraday-SSRF-Resolved-IP header' do
+      stubs.get('/') do |env|
+        expect(env.request_headers['X-Faraday-SSRF-Resolved-IP']).to eq('93.184.216.34')
         [200, {}, 'ok']
       end
       conn.get('/')
@@ -74,6 +82,122 @@ RSpec.describe Faraday::SsrfFilter::Middleware do
         [200, {}, 'ok']
       end
       c.get('/')
+    end
+  end
+
+  describe 'HTTPS preserves hostname for TLS SNI' do
+    it 'does not rewrite hostname for HTTPS' do
+      c = Faraday.new(url: 'https://example.com') do |f|
+        f.request :ssrf_filter, resolver: resolver
+        f.adapter :test, stubs
+      end
+      stubs.get('/') do |env|
+        expect(env.url.hostname).to eq('example.com')
+        expect(env.url.scheme).to eq('https')
+        expect(env.request_headers['X-Faraday-SSRF-Resolved-IP']).to eq('93.184.216.34')
+        [200, {}, 'ok']
+      end
+      c.get('/')
+    end
+
+    it 'does not set Host header override for HTTPS' do
+      c = Faraday.new(url: 'https://example.com') do |f|
+        f.request :ssrf_filter, resolver: resolver
+        f.adapter :test, stubs
+      end
+      stubs.get('/') do |env|
+        expect(env.request_headers).not_to have_key('Host')
+        [200, {}, 'ok']
+      end
+      c.get('/')
+    end
+  end
+
+  describe 'redirect validation' do
+    it 'allows redirects to public IPs' do
+      stubs.get('/') { [302, { 'location' => 'http://safe.example.com/new' }, ''] }
+      response = conn.get('/')
+      expect(response.status).to eq(302)
+    end
+
+    it 'blocks redirects to private IPs' do
+      evil_resolver = lambda do |hostname|
+        hostname == 'evil.internal' ? ['10.0.0.1'] : ['93.184.216.34']
+      end
+      c = Faraday.new(url: 'http://example.com') do |f|
+        f.request :ssrf_filter, resolver: evil_resolver
+        f.adapter :test, stubs
+      end
+      stubs.get('/') { [302, { 'location' => 'http://evil.internal/secrets' }, ''] }
+      expect { c.get('/') }.to raise_error(Faraday::SsrfFilter::UnsafeRedirectError, /private IP/)
+    end
+
+    it 'blocks redirects to loopback IP' do
+      stubs.get('/') { [302, { 'location' => 'http://127.0.0.1/metadata' }, ''] }
+      expect { conn.get('/') }.to raise_error(Faraday::SsrfFilter::UnsafeRedirectError)
+    end
+
+    it 'blocks redirects to cloud metadata endpoint' do
+      stubs.get('/') { [302, { 'location' => 'http://169.254.169.254/latest/meta-data/' }, ''] }
+      expect { conn.get('/') }.to raise_error(Faraday::SsrfFilter::UnsafeRedirectError)
+    end
+
+    it 'blocks redirects to disallowed schemes' do
+      stubs.get('/') { [302, { 'location' => 'file:///etc/passwd' }, ''] }
+      expect { conn.get('/') }.to raise_error(Faraday::SsrfFilter::UnsafeRedirectError, /scheme/)
+    end
+
+    it 'validates relative redirect paths' do
+      evil_resolver = lambda do |hostname|
+        hostname == 'example.com' ? ['93.184.216.34'] : ['10.0.0.1']
+      end
+      c = Faraday.new(url: 'http://example.com') do |f|
+        f.request :ssrf_filter, resolver: evil_resolver
+        f.adapter :test, stubs
+      end
+      stubs.get('/') { [302, { 'location' => '/safe-path' }, ''] }
+      response = c.get('/')
+      expect(response.status).to eq(302)
+    end
+
+    it 'blocks redirects where hostname resolves to only private IPs' do
+      evil_resolver = lambda do |hostname|
+        hostname == 'internal.corp' ? ['192.168.1.1', '10.0.0.1'] : ['93.184.216.34']
+      end
+      c = Faraday.new(url: 'http://example.com') do |f|
+        f.request :ssrf_filter, resolver: evil_resolver
+        f.adapter :test, stubs
+      end
+      stubs.get('/') { [302, { 'location' => 'http://internal.corp/admin' }, ''] }
+      expect { c.get('/') }.to raise_error(Faraday::SsrfFilter::UnsafeRedirectError, /private IP/)
+    end
+
+    it 'blocks redirects where hostname cannot be resolved' do
+      empty_resolver = lambda do |hostname|
+        hostname == 'gone.invalid' ? [] : ['93.184.216.34']
+      end
+      c = Faraday.new(url: 'http://example.com') do |f|
+        f.request :ssrf_filter, resolver: empty_resolver
+        f.adapter :test, stubs
+      end
+      stubs.get('/') { [302, { 'location' => 'http://gone.invalid/' }, ''] }
+      expect { c.get('/') }.to raise_error(Faraday::SsrfFilter::UnsafeRedirectError, /resolve/)
+    end
+
+    it 'passes through non-redirect responses' do
+      stubs.get('/') { [200, {}, 'ok'] }
+      response = conn.get('/')
+      expect(response.status).to eq(200)
+    end
+
+    it 'ignores redirects without Location header' do
+      stubs.get('/') { [301, {}, ''] }
+      response = conn.get('/')
+      expect(response.status).to eq(301)
+    end
+
+    it 'UnsafeRedirectError inherits from SSRFError' do
+      expect(Faraday::SsrfFilter::UnsafeRedirectError).to be < Faraday::SsrfFilter::SSRFError
     end
   end
 
@@ -337,6 +461,7 @@ RSpec.describe Faraday::SsrfFilter::Middleware do
       expect(Faraday::SsrfFilter::DirectIPError).to be < Faraday::SsrfFilter::SSRFError
       expect(Faraday::SsrfFilter::InvalidSchemeError).to be < Faraday::SsrfFilter::SSRFError
       expect(Faraday::SsrfFilter::DNSResolutionError).to be < Faraday::SsrfFilter::SSRFError
+      expect(Faraday::SsrfFilter::UnsafeRedirectError).to be < Faraday::SsrfFilter::SSRFError
     end
 
     it 'SSRFError inherits from Faraday::Error' do
