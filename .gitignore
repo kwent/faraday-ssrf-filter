@@ -1,7 +1,14 @@
 *.gem
 Gemfile.lock
 gemfiles/*.lock
-tmp/
-log/
-vendor/
+/.bundle/
+/vendor/
+/tmp/
+/log/
+/pkg/
+/coverage/
+/spec/reports/
+/.yardoc/
+/_yardoc/
+/doc/
 .context/

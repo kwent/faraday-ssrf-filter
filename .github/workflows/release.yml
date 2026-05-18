@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+
+      - name: Build gem
+        run: gem build faraday-ssrf-filter.gemspec
+
+      - name: Configure RubyGems Credentials
+        uses: rubygems/configure-rubygems-credentials@main
+
+      - name: Push to RubyGems
+        run: gem push faraday-ssrf-filter-*.gem
+
+      - name: Create GitHub Release
+        run: gh release create ${{ github.ref_name }} faraday-ssrf-filter-*.gem --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
