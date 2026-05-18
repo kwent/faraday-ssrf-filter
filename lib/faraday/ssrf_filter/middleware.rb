@@ -26,6 +26,7 @@ module Faraday
         IPAddr.new('172.16.0.0/12'),
         IPAddr.new('192.0.0.0/24'),
         IPAddr.new('192.0.2.0/24'),
+        IPAddr.new('192.88.99.0/24'),
         IPAddr.new('192.168.0.0/16'),
         IPAddr.new('198.18.0.0/15'),
         IPAddr.new('198.51.100.0/24'),
