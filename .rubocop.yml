@@ -32,3 +32,7 @@ Metrics/MethodLength:
 Metrics/ClassLength:
   Exclude:
     - "lib/faraday/ssrf_filter/middleware.rb"
+
+Naming/FileName:
+  Exclude:
+    - "lib/faraday-ssrf-filter.rb"
