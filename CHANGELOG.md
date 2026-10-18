@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Breaking:** require Ruby 3.3+ (3.0–3.2 are end-of-life)
+- Test against Ruby 3.3, 3.4, 4.0 and head
+- Pin RubyGems credentials action to a commit SHA; least-privilege CI token
+- Run RuboCop in default Rake task
+
 ## 0.2.0 (2026-05-18)
 
 - Add gem name autoload (`require 'faraday-ssrf-filter'` now works)
