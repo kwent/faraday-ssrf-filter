@@ -18,6 +18,11 @@ Inspired by [ssrf_filter](https://github.com/arkadiyt/ssrf_filter) (which uses `
 - **Scheme validation** (only `http`/`https` by default)
 - Works with **all Faraday adapters**
 
+## Requirements
+
+- Ruby 3.3+
+- Faraday 1.x or 2.x
+
 ## Installation
 
 Add to your Gemfile:
