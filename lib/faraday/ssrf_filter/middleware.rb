@@ -75,6 +75,7 @@ module Faraday
         @allowlist = parse_ip_list(options[:allowlist]).freeze
         @denylist = parse_ip_list(options[:denylist]).freeze
         ensure_no_inner_redirect_middleware!
+        NetHttpPinning.install
       end
 
       def call(env)
@@ -109,6 +110,7 @@ module Faraday
       end
 
       def validate_and_pin!(env)
+        NetHttpPinning.pin(env, nil)
         validate_scheme!(env[:url])
         hostname = env[:url].hostname
         addr = parse_ip(hostname)
@@ -146,10 +148,9 @@ module Faraday
         env[:request_headers]['X-Faraday-SSRF-Original-Host'] = original_hostname
         env[:request_headers]['X-Faraday-SSRF-Resolved-IP'] = ip
 
-        # Only rewrite hostname for HTTP. For HTTPS, rewriting breaks TLS SNI
-        # and certificate verification since the adapter would negotiate TLS
-        # with the IP address instead of the original hostname.
-        return unless uri.scheme == 'http'
+        # Rewriting the HTTPS hostname would break TLS SNI and certificate
+        # verification, so HTTPS is pinned at connect time instead.
+        return NetHttpPinning.pin(env, ip) unless uri.scheme == 'http'
 
         env[:request_headers]['Host'] = normalized_host(uri)
         env[:url] = uri.dup.tap { |u| u.hostname = ip }

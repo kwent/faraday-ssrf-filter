@@ -16,7 +16,7 @@ Inspired by [ssrf_filter](https://github.com/arkadiyt/ssrf_filter) (which uses `
 - Configurable **allowlist/denylist** for fine-grained control
 - **Custom DNS resolver** support
 - **Scheme validation** (only `http`/`https` by default)
-- Works with **all Faraday adapters**
+- Works with **all Faraday adapters** (HTTPS connect-time pinning requires the default `Net::HTTP` adapter)
 
 ## Requirements
 
@@ -156,7 +156,7 @@ Additionally, all IPv4 blacklisted ranges are also blocked in their IPv4-compati
 3. **DNS resolution** — The hostname is resolved to IP addresses using `Resolv.getaddresses`
 4. **IP validation** — Each resolved IP is checked against the comprehensive denylist
 5. **Hostname replacement (HTTP)** — For HTTP requests, the URL hostname is replaced with the validated IP and the `Host` header is set to the original hostname, preventing DNS rebinding
-6. **TLS preservation (HTTPS)** — For HTTPS requests, the hostname is preserved in the URL to maintain correct TLS SNI and certificate verification. The resolved IP is stored in the `X-Faraday-SSRF-Resolved-IP` header
+6. **Connect-time pinning (HTTPS)** — For HTTPS requests, the hostname is preserved in the URL to maintain correct TLS SNI and certificate verification. With the `Net::HTTP` adapter (Faraday's default), the connection is opened to the validated IP via `Net::HTTP#ipaddr=`, so a second DNS lookup cannot rebind the request to a private address. Through an HTTP proxy, the `CONNECT` request also targets the validated IP. Other adapters, and `Net::HTTP` through a SOCKS proxy, resolve the hostname again when connecting, so those HTTPS requests are validated but not pinned. The resolved IP is stored in the `X-Faraday-SSRF-Resolved-IP` header
 7. **Redirect validation** — Redirect responses (3xx with `Location` header) are inspected. The redirect target is resolved and validated against the same denylist, raising `UnsafeRedirectError` if it points to a private/reserved IP
 
 ## Middleware Ordering

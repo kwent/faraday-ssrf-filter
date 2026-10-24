@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'faraday'
+require_relative 'ssrf_filter/net_http_pinning'
 require_relative 'ssrf_filter/middleware'
 require_relative 'ssrf_filter/version'
 
