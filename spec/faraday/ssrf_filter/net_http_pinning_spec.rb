@@ -16,12 +16,12 @@ RSpec.describe Faraday::SsrfFilter::NetHttpPinning do
     end
   end
 
-  describe 'request context' do
+  describe 'pinned IP' do
     after { stubs.verify_stubbed_calls }
 
     it 'stores the validated IP for HTTPS requests' do
       stubs.get('/') do |env|
-        expect(env.request.context).to include(described_class::CONTEXT_KEY => public_ip)
+        expect(described_class.connect_ip(env)).to eq(public_ip)
         [200, {}, 'ok']
       end
       test_connection('https://example.com').get('/')
@@ -29,25 +29,25 @@ RSpec.describe Faraday::SsrfFilter::NetHttpPinning do
 
     it 'does not store a pinned IP for HTTP requests' do
       stubs.get('/') do |env|
-        expect(env.request.context.to_h).not_to have_key(described_class::CONTEXT_KEY)
+        expect(described_class.connect_ip(env)).to be_nil
         [200, {}, 'ok']
       end
       test_connection('http://example.com').get('/')
     end
 
-    it 'keeps the caller context without mutating it' do
-      caller_context = { trace_id: 'abc' }.freeze
+    it 'pins regardless of the caller request context' do
       stubs.get('/') do |env|
-        expect(env.request.context).to eq(trace_id: 'abc', described_class::CONTEXT_KEY => public_ip)
+        expect(described_class.connect_ip(env)).to eq(public_ip)
+        expect(env.request.context).to eq('caller-context')
         [200, {}, 'ok']
       end
-      test_connection('https://example.com').get('/') { |req| req.options.context = caller_context }
+      test_connection('https://example.com').get('/') { |req| req.options.context = 'caller-context' }
     end
 
     it 'clears a stale pinned IP when an HTTPS request is followed by an HTTP one' do
       stubs.get('https://a.example.com/') { [302, { 'Location' => 'http://b.example.com/' }, ''] }
       stubs.get('/') do |env|
-        expect(env.request.context.to_h).not_to have_key(described_class::CONTEXT_KEY)
+        expect(described_class.connect_ip(env)).to be_nil
         [200, {}, 'ok']
       end
       conn = Faraday.new(url: 'https://a.example.com') do |f|
@@ -56,6 +56,18 @@ RSpec.describe Faraday::SsrfFilter::NetHttpPinning do
         f.adapter :test, stubs
       end
       expect(conn.get('/').body).to eq('ok')
+    end
+
+    it 'leaves requests through a SOCKS proxy unpinned' do
+      stubs.get('/') do |env|
+        expect(described_class.connect_ip(env)).to be_nil
+        [200, {}, 'ok']
+      end
+      conn = Faraday.new(url: 'https://example.com', proxy: 'socks://127.0.0.1:1080') do |f|
+        f.request :ssrf_filter, resolver: resolver
+        f.adapter :test, stubs
+      end
+      conn.get('/')
     end
   end
 

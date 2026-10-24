@@ -5,9 +5,10 @@ module Faraday
     # Makes the Net::HTTP adapter connect to the IP the filter validated
     # instead of resolving the hostname again, while TLS SNI and certificate
     # verification keep using the hostname. Through an HTTP proxy the CONNECT
-    # request targets the pinned IP too.
+    # request targets the pinned IP too. SOCKS proxies are left unpinned so
+    # the request still goes through the proxy.
     module NetHttpPinning
-      CONTEXT_KEY = :ssrf_filter_pinned_ip
+      ENV_KEY = :ssrf_filter_pinned_ip
 
       def self.install
         return unless defined?(Faraday::Adapter::NetHttp)
@@ -17,27 +18,22 @@ module Faraday
       end
 
       def self.pin(env, ip)
-        request = env[:request]
-        return unless request
-
-        context = request[:context]
-        return if context && !context.is_a?(Hash)
-
-        context = (context || {}).dup
-        ip ? context[CONTEXT_KEY] = ip : context.delete(CONTEXT_KEY)
-        request[:context] = context
+        env[ENV_KEY] = ip
       end
 
-      def self.pinned_ip(env)
-        context = env[:request] && env[:request][:context]
-        context[CONTEXT_KEY] if context.is_a?(Hash)
+      def self.connect_ip(env)
+        env[ENV_KEY] unless socks_proxy?(env[:request] && env[:request][:proxy])
+      end
+
+      def self.socks_proxy?(proxy)
+        proxy && proxy[:uri].scheme == 'socks'
       end
 
       private
 
       def net_http_connection(env)
         super.tap do |http|
-          ip = NetHttpPinning.pinned_ip(env)
+          ip = NetHttpPinning.connect_ip(env)
           http.ipaddr = ip if ip && http.respond_to?(:ipaddr=)
         end
       end
