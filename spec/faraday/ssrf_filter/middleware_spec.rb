@@ -267,6 +267,20 @@ RSpec.describe Faraday::SsrfFilter::Middleware do
         expect(c.get('/').body).to eq('ok')
       end
 
+      it 'keeps the pinned Host header on a same-host relative redirect' do
+        c = Faraday.new(url: 'http://example.com') do |f|
+          f.response :follow_redirects
+          f.request :ssrf_filter, resolver: resolver, allow_ip_addresses: true
+          f.adapter :test, stubs
+        end
+        stubs.get('http://93.184.216.34/old') { [301, { 'location' => '/new' }, ''] }
+        stubs.get('http://93.184.216.34/new') do |env|
+          expect(env.request_headers['Host']).to eq('example.com')
+          [200, {}, 'ok']
+        end
+        expect(c.get('/old').body).to eq('ok')
+      end
+
       it 'keeps a caller-supplied Host header on the first request' do
         stubs.get('https://other.example.com/') do |env|
           expect(env.request_headers['Host']).to eq('custom.example.com')

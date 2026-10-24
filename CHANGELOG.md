@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2 (2026-10-24)
+
+- Fix a 0.4.1 regression: a same-host relative redirect over HTTP dropped the pinned `Host` header, because the relative `Location` resolves against the URL already rewritten to the pinned IP
+
 ## 0.4.1 (2026-10-24)
 
 - Drop the `Host` header pinned for a previous HTTP hop when a redirect goes to a direct IP address too (it was only dropped for hostname targets)
