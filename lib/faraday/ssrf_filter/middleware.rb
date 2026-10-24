@@ -117,7 +117,7 @@ module Faraday
 
         if addr
           validate_direct_ip!(addr, hostname)
-          unpin_previous_host!(env[:request_headers]) if env[:request_headers]
+          unpin_previous_host!(env[:request_headers]) if pinned_to_other_ip?(env[:request_headers], addr)
         else
           resolve_and_pin!(env, hostname)
         end
@@ -165,6 +165,14 @@ module Faraday
 
         headers.delete('Host') if headers['Host']&.sub(/:\d+\z/, '') == previous_host
         PINNED_HOST_HEADERS.each { |header| headers.delete(header) }
+      end
+
+      # A relative redirect resolves against the URL already rewritten to the
+      # pinned IP, so a hop to that same IP is still the original host.
+      def pinned_to_other_ip?(headers, addr)
+        return false unless headers
+
+        parse_ip(headers['X-Faraday-SSRF-Resolved-IP'].to_s) != addr
       end
 
       def validate_redirect!(env)
