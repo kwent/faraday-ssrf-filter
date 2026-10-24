@@ -252,6 +252,21 @@ RSpec.describe Faraday::SsrfFilter::Middleware do
         expect(conn.get('/').body).to eq('ok')
       end
 
+      it 'drops the pinned Host header on a redirect to a public IP' do
+        c = Faraday.new(url: 'http://example.com') do |f|
+          f.response :follow_redirects
+          f.request :ssrf_filter, resolver: resolver, allow_ip_addresses: true
+          f.adapter :test, stubs
+        end
+        stubs.get('http://93.184.216.34/') { [302, { 'location' => 'http://93.184.216.35/' }, ''] }
+        stubs.get('http://93.184.216.35/') do |env|
+          expect(env.request_headers).not_to have_key('Host')
+          expect(env.request_headers).not_to have_key('X-Faraday-SSRF-Original-Host')
+          [200, {}, 'ok']
+        end
+        expect(c.get('/').body).to eq('ok')
+      end
+
       it 'keeps a caller-supplied Host header on the first request' do
         stubs.get('https://other.example.com/') do |env|
           expect(env.request_headers['Host']).to eq('custom.example.com')

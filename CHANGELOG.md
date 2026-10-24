@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 (2026-10-24)
+
+- Drop the `Host` header pinned for a previous HTTP hop when a redirect goes to a direct IP address too (it was only dropped for hostname targets)
+
 ## 0.4.0 (2026-10-24)
 
 - **Breaking:** raise `MiddlewareOrderError` when `faraday-follow_redirects` or `faraday_middleware`'s `FollowRedirects` is registered after `:ssrf_filter`. In that order redirect targets were never validated, so a public URL redirecting to a private address bypassed the filter
