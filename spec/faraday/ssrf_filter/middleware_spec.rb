@@ -201,6 +201,67 @@ RSpec.describe Faraday::SsrfFilter::Middleware do
     end
   end
 
+  describe 'middleware ordering' do
+    let(:resolver) do
+      lambda do |hostname|
+        { 'example.com' => ['93.184.216.34'], 'other.example.com' => ['93.184.216.35'] }
+          .fetch(hostname, ['10.0.0.1'])
+      end
+    end
+
+    it 'raises when a redirect-following middleware is registered inside the filter' do
+      c = Faraday.new(url: 'http://example.com') do |f|
+        f.request :ssrf_filter, resolver: resolver
+        f.response :follow_redirects
+        f.adapter :test, stubs
+      end
+      expect { c.get('/') }.to raise_error(Faraday::SsrfFilter::MiddlewareOrderError, /before :ssrf_filter/)
+    end
+
+    it 'raises when a subclass of a redirect-following middleware is registered inside the filter' do
+      c = Faraday.new(url: 'http://example.com') do |f|
+        f.request :ssrf_filter, resolver: resolver
+        f.use Class.new(Faraday::FollowRedirects::Middleware)
+        f.adapter :test, stubs
+      end
+      expect { c.get('/') }.to raise_error(Faraday::SsrfFilter::MiddlewareOrderError, /before :ssrf_filter/)
+    end
+
+    context 'with the redirect-following middleware registered first' do
+      let(:conn) do
+        Faraday.new(url: 'http://example.com') do |f|
+          f.response :follow_redirects
+          f.request :ssrf_filter, resolver: resolver
+          f.adapter :test, stubs
+        end
+      end
+
+      it 'blocks a redirect to a private address before following it' do
+        stubs.get('http://93.184.216.34/') { [302, { 'location' => 'http://internal.example.com/' }, ''] }
+        expect { conn.get('/') }.to raise_error(Faraday::SsrfFilter::UnsafeRedirectError)
+      end
+
+      it 'drops the pinned Host header on a cross-host redirect from HTTP to HTTPS' do
+        stubs.get('http://93.184.216.34/') { [302, { 'location' => 'https://other.example.com/' }, ''] }
+        stubs.get('https://other.example.com/') do |env|
+          expect(env.request_headers).not_to have_key('Host')
+          expect(env.request_headers['X-Faraday-SSRF-Original-Host']).to eq('other.example.com')
+          expect(env.request_headers['X-Faraday-SSRF-Resolved-IP']).to eq('93.184.216.35')
+          [200, {}, 'ok']
+        end
+        expect(conn.get('/').body).to eq('ok')
+      end
+
+      it 'keeps a caller-supplied Host header on the first request' do
+        stubs.get('https://other.example.com/') do |env|
+          expect(env.request_headers['Host']).to eq('custom.example.com')
+          [200, {}, 'ok']
+        end
+        conn.get('https://other.example.com/', nil, 'Host' => 'custom.example.com')
+      end
+    end
+  end
+
   describe 'IPv4 private ranges' do
     [
       ['0.0.0.0', '0.0.0.0/8'],
@@ -462,6 +523,7 @@ RSpec.describe Faraday::SsrfFilter::Middleware do
       expect(Faraday::SsrfFilter::InvalidSchemeError).to be < Faraday::SsrfFilter::SSRFError
       expect(Faraday::SsrfFilter::DNSResolutionError).to be < Faraday::SsrfFilter::SSRFError
       expect(Faraday::SsrfFilter::UnsafeRedirectError).to be < Faraday::SsrfFilter::SSRFError
+      expect(Faraday::SsrfFilter::MiddlewareOrderError).to be < Faraday::SsrfFilter::SSRFError
     end
 
     it 'SSRFError inherits from Faraday::Error' do

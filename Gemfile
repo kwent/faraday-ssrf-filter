@@ -5,6 +5,7 @@ source 'https://rubygems.org'
 gemspec
 
 group :test do
+  gem 'faraday-follow_redirects', '~> 0.3'
   gem 'rspec', '~> 3.0'
   gem 'webmock', '~> 3.0'
 end
