@@ -117,6 +117,7 @@ module Faraday
 
         if addr
           validate_direct_ip!(addr, hostname)
+          unpin_previous_host!(env[:request_headers]) if env[:request_headers]
         else
           resolve_and_pin!(env, hostname)
         end
