@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 (unreleased)
+
+- **Breaking:** raise `MiddlewareOrderError` when `faraday-follow_redirects` or `faraday_middleware`'s `FollowRedirects` is registered after `:ssrf_filter`. In that order redirect targets were never validated, so a public URL redirecting to a private address bypassed the filter
+- Drop the `Host` header pinned for a previous HTTP hop when a redirect goes to another host (it was sent unchanged to the new host on HTTP → HTTPS redirects)
+- Correct the README, which said redirect validation worked regardless of middleware ordering
+
 ## 0.3.0 (2026-10-18)
 
 - **Breaking:** require Ruby 3.3+ (3.0–3.2 are end-of-life)

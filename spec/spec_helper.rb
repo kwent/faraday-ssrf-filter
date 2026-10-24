@@ -2,6 +2,7 @@
 
 require 'faraday'
 require 'faraday/ssrf_filter'
+require 'faraday/follow_redirects'
 require 'webmock/rspec'
 
 WebMock.disable_net_connect!

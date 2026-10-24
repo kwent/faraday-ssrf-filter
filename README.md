@@ -98,6 +98,8 @@ rescue Faraday::SsrfFilter::DNSResolutionError => e
   # Could not resolve hostname
 rescue Faraday::SsrfFilter::UnsafeRedirectError => e
   # Response redirects to a private/reserved IP or disallowed scheme
+rescue Faraday::SsrfFilter::MiddlewareOrderError => e
+  # A redirect-following middleware is registered inside the filter
 rescue Faraday::SsrfFilter::SSRFError => e
   # Catch-all for any SSRF error
 end
@@ -169,7 +171,9 @@ conn = Faraday.new(url: 'https://api.example.com') do |f|
 end
 ```
 
-The SSRF filter also validates redirect `Location` headers in responses as defense-in-depth, regardless of middleware ordering.
+The filter only validates a redirect `Location` when the 3xx response passes back through it. A redirect middleware registered *after* the filter follows each hop itself, so the filter never sees the intermediate 3xx and redirect targets are not validated. To prevent that silent bypass, the filter raises `Faraday::SsrfFilter::MiddlewareOrderError` on the first request when it detects `faraday-follow_redirects` or `faraday_middleware`'s `FollowRedirects` inside it.
+
+On a redirect to a different host, the `Host` header pinned for the previous HTTP hop is dropped before the next hop is validated and pinned, so it never reaches the new host.
 
 ## Acknowledgments
 

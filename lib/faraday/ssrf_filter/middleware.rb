@@ -12,10 +12,13 @@ module Faraday
     class InvalidSchemeError < SSRFError; end
     class DNSResolutionError < SSRFError; end
     class UnsafeRedirectError < SSRFError; end
+    class MiddlewareOrderError < SSRFError; end
 
     class Middleware < Faraday::Middleware
       DEFAULT_SCHEMES = %w[http https].freeze
       REDIRECT_STATUSES = (300..399)
+      REDIRECT_MIDDLEWARE_NAMES = %w[Faraday::FollowRedirects::Middleware FaradayMiddleware::FollowRedirects].freeze
+      PINNED_HOST_HEADERS = %w[X-Faraday-SSRF-Original-Host X-Faraday-SSRF-Resolved-IP].freeze
 
       IPV4_DENYLIST = [
         IPAddr.new('0.0.0.0/8'),
@@ -71,6 +74,7 @@ module Faraday
         @allow_ip_addresses = options[:allow_ip_addresses] == true
         @allowlist = parse_ip_list(options[:allowlist]).freeze
         @denylist = parse_ip_list(options[:denylist]).freeze
+        ensure_no_inner_redirect_middleware!
       end
 
       def call(env)
@@ -79,6 +83,18 @@ module Faraday
       end
 
       private
+
+      def ensure_no_inner_redirect_middleware!
+        handler = @app
+        while handler
+          if REDIRECT_MIDDLEWARE_NAMES.include?(handler.class.name)
+            raise MiddlewareOrderError,
+                  "#{handler.class.name} must be registered before :ssrf_filter, " \
+                  'otherwise redirect targets bypass SSRF validation'
+          end
+          handler = handler.instance_variable_get(:@app)
+        end
+      end
 
       def default_resolver(hostname)
         Resolv.getaddresses(hostname)
@@ -122,6 +138,7 @@ module Faraday
       def pin_ip!(env, ip, original_hostname)
         uri = env[:url]
         env[:request_headers] ||= {}
+        unpin_previous_host!(env[:request_headers])
         env[:request_headers]['X-Faraday-SSRF-Original-Host'] = original_hostname
         env[:request_headers]['X-Faraday-SSRF-Resolved-IP'] = ip
 
@@ -132,6 +149,16 @@ module Faraday
 
         env[:request_headers]['Host'] = normalized_host(uri)
         env[:url] = uri.dup.tap { |u| u.hostname = ip }
+      end
+
+      # A redirect-following middleware reuses the previous hop's headers, so a
+      # Host pinned for an HTTP hop would otherwise leak into an HTTPS hop.
+      def unpin_previous_host!(headers)
+        previous_host = headers['X-Faraday-SSRF-Original-Host']
+        return unless previous_host
+
+        headers.delete('Host') if headers['Host']&.sub(/:\d+\z/, '') == previous_host
+        PINNED_HOST_HEADERS.each { |header| headers.delete(header) }
       end
 
       def validate_redirect!(env)
