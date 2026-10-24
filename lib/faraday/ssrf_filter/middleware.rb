@@ -87,13 +87,17 @@ module Faraday
       def ensure_no_inner_redirect_middleware!
         handler = @app
         while handler
-          if REDIRECT_MIDDLEWARE_NAMES.include?(handler.class.name)
+          if redirect_middleware?(handler)
             raise MiddlewareOrderError,
                   "#{handler.class.name} must be registered before :ssrf_filter, " \
                   'otherwise redirect targets bypass SSRF validation'
           end
           handler = handler.instance_variable_get(:@app)
         end
+      end
+
+      def redirect_middleware?(handler)
+        handler.class.ancestors.any? { |ancestor| REDIRECT_MIDDLEWARE_NAMES.include?(ancestor.name) }
       end
 
       def default_resolver(hostname)

@@ -218,6 +218,15 @@ RSpec.describe Faraday::SsrfFilter::Middleware do
       expect { c.get('/') }.to raise_error(Faraday::SsrfFilter::MiddlewareOrderError, /before :ssrf_filter/)
     end
 
+    it 'raises when a subclass of a redirect-following middleware is registered inside the filter' do
+      c = Faraday.new(url: 'http://example.com') do |f|
+        f.request :ssrf_filter, resolver: resolver
+        f.use Class.new(Faraday::FollowRedirects::Middleware)
+        f.adapter :test, stubs
+      end
+      expect { c.get('/') }.to raise_error(Faraday::SsrfFilter::MiddlewareOrderError, /before :ssrf_filter/)
+    end
+
     context 'with the redirect-following middleware registered first' do
       let(:conn) do
         Faraday.new(url: 'http://example.com') do |f|
